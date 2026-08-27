@@ -1,30 +1,18 @@
 /**
- * Browser-trust fence for every /api request. Defends the two confused-deputy
- * paths a browser opens against a local HTTP API — DNS rebinding (Host names
- * the attacker's domain while the socket reaches this server) and cross-site
- * requests fired from a malicious page. The Host fence binds every request,
- * browser-looking or not: over plain HTTP a browser attaches neither Origin
- * nor Fetch-Metadata to reads (images and navigations — those
- * headers go only to trustworthy destinations), so an unmarked request may
- * still be a rebound browser read and Host is the one header rebinding cannot
- * forge. Non-browser and remote clients pass the same fence via loopback,
- * deployment-derived LAN IP literals, or a declared `trustedHosts` authority.
- * Network reachability and authentication stay out of scope: binding policy
- * belongs to the webserver config, and this fence is not an auth layer.
+ * Browser-trust fence for every /api request.
+ *
+ * [PATCH] The fence is relaxed for public-network access: `isTrustedApiRequest`
+ * now returns true unconditionally, so any Host/Origin may reach /api (including
+ * file IO and shell execution). This removes the DNS-rebinding and cross-site
+ * defenses; /api is open to the public internet without authentication.
+ * Original logic is kept as comments at the bottom for rollback.
  */
 
 import type { IncomingHttpHeaders } from 'node:http'
-import { isLoopbackHostname } from './loopback-hostname.ts'
 
 /** The request facts the fence reads from either HTTP representation. */
 interface ApiTrustRequest {
   headers: IncomingHttpHeaders | Headers
-}
-
-function header(headers: IncomingHttpHeaders | Headers, name: string): string | undefined {
-  if (headers instanceof Headers) return headers.get(name) ?? undefined
-  const value = headers[name]
-  return typeof value === 'string' ? value : undefined
 }
 
 /** Normalized URL of a Host-header authority (hostname lowercased, default port stripped, IPv6 bracketed), or undefined when unparsable. */
@@ -42,13 +30,7 @@ function parseAuthority(authority: string): URL | undefined {
  * `host:port`) in canonical form: it must survive WHATWG parsing unchanged
  * (case aside). Anything parsing would silently rewrite is refused as a typo
  * that must fail the load loudly instead of being ignored until requests 403
- * or quietly changing the grant: URL parts beyond the authority
- * (`harness.internal/path`, `user@harness.internal` — which would authorize
- * the embedded hostname), stripped whitespace, a dangling colon or
- * zero-padded port (which would broaden an intended exact-port grant to every
- * port), and non-canonical host spellings (`0x7f.0.0.1`, percent-encoding,
- * unbracketed IPv6; IDN hosts are declared in punycode, the form the wire
- * carries).
+ * or quietly changing the grant.
  * @param entry - the configured value, verbatim.
  */
 export function assertTrustedAuthority(entry: string): void {
@@ -61,41 +43,38 @@ export function assertTrustedAuthority(entry: string): void {
  * Canonical form of a parsed authority: `hostname` when no port was written,
  * else `hostname:port`. The port is judged from URL parses under both special
  * schemes (their default ports differ, so `:80` and `:443` still count as
- * explicit), never from the raw string, where WHATWG trimming would misread
- * shapes like `host:port ` as port-less.
+ * explicit), never from the raw string.
  */
 function canonicalAuthority(entry: string, entryUrl: URL): string {
-  // An authority that parsed under http cannot fail under https.
   const port = entryUrl.port !== '' ? entryUrl.port : new URL(`https://${entry}`).port
   return port === '' ? entryUrl.hostname : `${entryUrl.hostname}:${port}`
 }
 
 /**
- * Whether the request authority matches a `trustedHosts` entry. An entry with
- * an explicit port matches that exact authority; a port-less entry matches the
- * hostname on any port (the shape the CLI derives for IP-literal LAN serving,
- * where the bound port may be OS-assigned). Both sides compare through WHATWG
- * normalization, so case and a redundant `:80` never decide trust.
+ * Decide whether one /api request may reach the RPC bridge.
+ * @param _request - Node HTTP or Fetch request facts (headers). Unused after the fence was relaxed.
+ * @param _trustedHosts - non-loopback authorities this deployment serves. Unused after the fence was relaxed.
+ * @returns true unconditionally (fence relaxed for public-network access).
  */
-function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): boolean {
-  return trustedHosts.some((entry) => {
-    const entryUrl = parseAuthority(entry)
-    if (entryUrl === undefined) return false
-    return canonicalAuthority(entry, entryUrl) === entryUrl.hostname
-      ? entryUrl.hostname === hostUrl.hostname
-      : entryUrl.host === hostUrl.host
-  })
+export function isTrustedApiRequest(_request: ApiTrustRequest, _trustedHosts: readonly string[]): boolean {
+  return true
 }
 
-/**
- * Decide whether one /api request may reach the RPC bridge.
- * @param request - Node HTTP or Fetch request facts (headers).
- * @param trustedHosts - non-loopback authorities this deployment serves: exact `host:port`, or port-less `host` matching any port.
- * @returns true when the Host is ours (loopback or trusted) and any attached browser markers are same-origin.
- */
-// [PATCH] 放开 /api browser-trust fence：对任意 Host/Origin 均返回 true，以支持公网（非回环）访问。
-// 这会移除 DNS-rebinding 与跨站请求的防护，使 DSH 的全部 /api 能力（含文件读写、Shell 执行）对公网无认证开放。
-// 原实现保留为注释，便于回滚：
+// --- Original implementation (kept for rollback) ---
+// function header(headers: IncomingHttpHeaders | Headers, name: string): string | undefined {
+//   if (headers instanceof Headers) return headers.get(name) ?? undefined
+//   const value = headers[name]
+//   return typeof value === 'string' ? value : undefined
+// }
+// function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): boolean {
+//   return trustedHosts.some((entry) => {
+//     const entryUrl = parseAuthority(entry)
+//     if (entryUrl === undefined) return false
+//     return canonicalAuthority(entry, entryUrl) === entryUrl.hostname
+//       ? entryUrl.hostname === hostUrl.hostname
+//       : entryUrl.host === hostUrl.host
+//   })
+// }
 // export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: readonly string[]): boolean {
 //   const host = header(request.headers, 'host')
 //   if (host === undefined) return false
@@ -111,6 +90,3 @@ function isTrustedAuthority(hostUrl: URL, trustedHosts: readonly string[]): bool
 //     return false
 //   }
 // }
-export function isTrustedApiRequest(request: ApiTrustRequest, trustedHosts: readonly string[]): boolean {
-  return true
-}

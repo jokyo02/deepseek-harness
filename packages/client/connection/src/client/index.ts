@@ -10,7 +10,6 @@ import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
 import { createWebConnectionRpc, type RpcFetch } from './rpc.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
-import { isTrustedAuthority } from '../api-request-trust.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
@@ -133,8 +132,10 @@ export function apply(ctx: Context): void {
   // 注意：需配合已放开的 /api 信任栅栏；该域名下任何人可经公网读写 settings。
   const trustedHosts: readonly string[] =
     (ctx.get('webRuntime') as { trustedHosts?: string[] } | undefined)?.trustedHosts ?? []
-  const isTrustedPage = pageLocation !== undefined
-    && isTrustedAuthority(new URL(pageLocation.href), trustedHosts)
+  const isTrustedPage = pageLocation !== undefined && trustedHosts.some((entry) => {
+    const bare = entry.includes(':') ? entry.slice(0, entry.lastIndexOf(':')) : entry
+    return bare === pageLocation.hostname
+  })
   const handle: ConnectionHandle = {
     api,
     isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname) || isTrustedPage,
