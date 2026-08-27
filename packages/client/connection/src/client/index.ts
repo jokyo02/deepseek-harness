@@ -10,6 +10,7 @@ import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
 import { createWebConnectionRpc, type RpcFetch } from './rpc.ts'
 import { isLoopbackHostname } from '../loopback-hostname.ts'
+import { isTrustedAuthority } from '../api-request-trust.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
@@ -127,9 +128,16 @@ export function apply(ctx: Context): void {
       }
     }
   }
+  // [PATCH] 让声明为 --trusted-host 的公网域名也视作可写 settings（等价于回环），
+  // 以支持经公网域名访问时仍能配置模型/提供方（settings 含 API key 等凭据）。
+  // 注意：需配合已放开的 /api 信任栅栏；该域名下任何人可经公网读写 settings。
+  const trustedHosts: readonly string[] =
+    (ctx.get('webRuntime') as { trustedHosts?: string[] } | undefined)?.trustedHosts ?? []
+  const isTrustedPage = pageLocation !== undefined
+    && isTrustedAuthority(new URL(pageLocation.href), trustedHosts)
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname),
+    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname) || isTrustedPage,
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {
