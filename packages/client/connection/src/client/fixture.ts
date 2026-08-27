@@ -3178,7 +3178,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.list': return this.api.sessions.list(request)
       case 'session.search': return this.api.sessions.search(request, signal)
       case 'session.create': return this.api.sessions.create(request)
-      case 'session.history': return this.api.sessions.history(request)
+      case 'session.timeline': return this.api.sessions.history(request)
       case 'session.models': return this.api.sessions.models(request)
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.rename': return this.api.sessions.rename(request)

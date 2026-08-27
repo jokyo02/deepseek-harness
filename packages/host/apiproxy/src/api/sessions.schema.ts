@@ -143,7 +143,7 @@ export const sessionHistoryRequestSchema = z.object({
   sessionId: sessionIdSchema,
   beforeSeq: z.number().int().nonnegative().optional(),
   maxMessages: z.number().int().positive().optional(),
-}) satisfies z.ZodType<Wire<RequestPayload<'session.history'>>>
+}) satisfies z.ZodType<Wire<RequestPayload<'session.timeline'>>>
 
 /** Complete provider/model selection. */
 export const modelSelectionSchema = z.object({
@@ -236,7 +236,7 @@ export const imageLimitsProjectionSchema = z.object({
 }) as unknown as z.ZodType<ImageAttachmentLimits>
 
 /** session.history response value (projections rides the tail page only). */
-export const sessionHistoryValueSchema: z.ZodType<Wire<ResponseValue<'session.history'>>> = z.object({
+export const sessionHistoryValueSchema: z.ZodType<Wire<ResponseValue<'session.timeline'>>> = z.object({
   events: z.array(historyEntrySchema),
   hasMore: z.boolean(),
   projections: sessionProjectionsBlockSchema.optional(),
