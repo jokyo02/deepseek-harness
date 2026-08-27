@@ -9,7 +9,6 @@ import { ConnectionController, type ConnectionConfig, type ConnectionSinks, type
 import { FixtureApiClient } from './fixture.ts'
 import { WebApiClient } from './web-api-client.ts'
 import { createWebConnectionRpc, type RpcFetch } from './rpc.ts'
-import { isLoopbackHostname } from '../loopback-hostname.ts'
 import type { ClientConnectionRpc } from '../rpc.ts'
 
 // ---- Contract re-exports (browser-safe apiproxy channels + core types) ----
@@ -127,18 +126,13 @@ export function apply(ctx: Context): void {
       }
     }
   }
-  // [PATCH] 让声明为 --trusted-host 的公网域名也视作可写 settings（等价于回环），
-  // 以支持经公网域名访问时仍能配置模型/提供方（settings 含 API key 等凭据）。
-  // 注意：需配合已放开的 /api 信任栅栏；该域名下任何人可经公网读写 settings。
-  const trustedHosts: readonly string[] =
-    (ctx.get('webRuntime') as { trustedHosts?: string[] } | undefined)?.trustedHosts ?? []
-  const isTrustedPage = pageLocation !== undefined && trustedHosts.some((entry) => {
-    const bare = entry.includes(':') ? entry.slice(0, entry.lastIndexOf(':')) : entry
-    return bare === pageLocation.hostname
-  })
+  // [PATCH] 完全放开：任何页面访问都视为 loopback-equivalent，settings 恒可写。
+  // 前端 ctx 拿不到 host 侧的 webRuntime.trustedHosts，故不做 trusted-host 精确匹配，
+  // 直接对任意公网域名开放 settings（含 API key 等凭据的读写）。
+  // 注意：需配合已放开的 /api 信任栅栏，任何拿到公网链接的人均可经公网读写 settings。
   const handle: ConnectionHandle = {
     api,
-    isLoopback: pageLocation === undefined || isLoopbackHostname(pageLocation.hostname) || isTrustedPage,
+    isLoopback: true,
     hostDescription: {
       getSnapshot: () => description,
       subscribe: (listener) => {
